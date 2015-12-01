@@ -1,7 +1,6 @@
 package io.hetty.server;
 
 import com.google.common.util.concurrent.AbstractIdleService;
-import io.hetty.server.handler.HettyHttpHandler;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -10,12 +9,16 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
+import org.springframework.boot.context.embedded.EmbeddedServletContainer;
+import org.springframework.boot.context.embedded.EmbeddedServletContainerException;
+
+import javax.servlet.ServletException;
 
 /**
  * Hetty Server 主类
  * Created by yuck on 2015/11/29.
  */
-public class HettyServer extends AbstractIdleService {
+public class HettyServer extends AbstractIdleService implements EmbeddedServletContainer {
 
     private static final InternalLogger LOGGER = InternalLoggerFactory.getInstance(HettyServer.class);
 
@@ -71,19 +74,32 @@ public class HettyServer extends AbstractIdleService {
         LOGGER.info("Stopped hetty server on {}:{} ...", this.hettyConfig.getBindAddress(), this.hettyConfig.getBindPort());
     }
 
-    private ChannelInitializer<?> initChildHandler() {
-//        if(config.webSocket()){
-//            handler = new CiHttpWebSocketHandler(wsHandlerProxy, config.webSocketPath(), config.limit()) {
-//                @Override
-//                protected boolean doProcess(CiContext context) throws Exception {
-//                    return router.call(context);
-//                }
-//            };
-//        }else{
-        handler = new HettyHttpHandler();
-//        }
-        HettyChannelIniter initer = new HettyChannelIniter(handler);
+    private ChannelInitializer<?> initChildHandler() throws ServletException {
+        HettyChannelIniter initer = new HettyChannelIniter();
         return initer;
+    }
+
+    @Override
+    public void start() throws EmbeddedServletContainerException {
+        try {
+            startUp();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void stop() throws EmbeddedServletContainerException {
+        try {
+            shutDown();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public int getPort() {
+        return this.hettyConfig.getBindPort();
     }
 
 

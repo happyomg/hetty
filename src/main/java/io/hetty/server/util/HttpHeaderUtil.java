@@ -1,7 +1,5 @@
 package io.hetty.server.util;
 
-import io.hetty.server.constant.HttpHeaderNames;
-import io.hetty.server.constant.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMessage;
 
@@ -13,15 +11,15 @@ public class HttpHeaderUtil {
         HttpHeaders h = message.headers();
         if (message.getProtocolVersion().isKeepAliveDefault()) {
             if (keepAlive) {
-                h.remove(HttpHeaderNames.CONNECTION);
+                h.remove(HttpHeaders.Names.CONNECTION);
             } else {
-                h.set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+                h.set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.CLOSE);
             }
         } else {
             if (keepAlive) {
-                h.set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+                h.set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
             } else {
-                h.remove(HttpHeaderNames.CONNECTION);
+                h.remove(HttpHeaders.Names.CONNECTION);
             }
         }
     }

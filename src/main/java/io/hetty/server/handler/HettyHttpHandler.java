@@ -1,15 +1,27 @@
 package io.hetty.server.handler;
 
 import io.hetty.server.util.HttpHeaderUtil;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.codec.http.DefaultFullHttpResponse;
-import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
+import io.netty.handler.codec.http.*;
+import io.netty.handler.stream.ChunkedStream;
+import io.netty.util.CharsetUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.util.UriComponents;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
+
+import javax.servlet.Servlet;
+import javax.servlet.ServletContext;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Created by yuck on 2015/11/30.
@@ -18,9 +30,17 @@ import io.netty.util.internal.logging.InternalLoggerFactory;
 public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
     private static final InternalLogger LOGGER = InternalLoggerFactory.getInstance(HettyHttpHandler.class);
 
+    private final Servlet servlet;
+    private final ServletContext servletContext;
+
+    public HettyHttpHandler(Servlet servlet) {
+        this.servlet = servlet;
+        this.servletContext = servlet.getServletConfig().getServletContext();
+    }
+
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Object msg) throws Exception {
-        LOGGER.debug("requestMsg:{}",msg);
+        LOGGER.debug("requestMsg:{}", msg);
         if ((msg instanceof FullHttpRequest)) {
             FullHttpRequest req = (FullHttpRequest) msg;
             if (!req.getDecoderResult().isSuccess()) {
@@ -28,28 +48,90 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
                 HttpHeaderUtil.setKeepAlive(ret, false);
                 ctx.writeAndFlush(ret).addListener(ChannelFutureListener.CLOSE);
                 return;
-            }else{
+            } else {
                 LOGGER.info("TODO HANDLE REQUEST");
-                DefaultFullHttpResponse ret = new DefaultFullHttpResponse(req.getProtocolVersion(), HttpResponseStatus.OK);
-                HttpHeaderUtil.setKeepAlive(ret, false);
-                ctx.writeAndFlush(ret).addListener(ChannelFutureListener.CLOSE);
+                MockHttpServletRequest servletRequest = createServletRequest(req);
+                MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+                this.servlet.service(servletRequest, servletResponse);
+                HttpResponseStatus status = HttpResponseStatus.valueOf(servletResponse.getStatus());
+                HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
+
+                for (String name : servletResponse.getHeaderNames()) {
+                    for (Object value : servletResponse.getHeaderValues(name)) {
+                        response.headers().add(name, value);
+                    }
+                }
+
+                // Write the initial line and the header.
+                ctx.write(response);
+
+                InputStream contentStream = new ByteArrayInputStream(servletResponse.getContentAsByteArray());
+                // Write the content.
+                ctx.writeAndFlush(new ChunkedStream(contentStream)).addListener(ChannelFutureListener.CLOSE);
             }
-//
-//            HettyContext context = new HettyContext(ctx, req);
-//            if (doProcess(context) == false) {
-//                context.out().setStatus(HttpResponseStatus.NOT_FOUND);
-//            }
-//            if (context.isFinish() == false) {
-//                if (context.isAsync() == false) {
-//                    context.finish();
-//                }
-//            }
         }
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         super.exceptionCaught(ctx, cause);
-        LOGGER.error("有错误！！！！！！TODO 待完善");
+        cause.printStackTrace();
+        if (ctx.channel().isActive()) {
+            sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+        }
     }
+
+    private static void sendError(ChannelHandlerContext ctx, HttpResponseStatus status) {
+        ByteBuf content = Unpooled.copiedBuffer("Failure: " + status.toString() + "\r\n", CharsetUtil.UTF_8);
+        DefaultFullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content);
+        response.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8");
+        // Close the connection as soon as the error message is sent.
+        ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+    }
+
+    private MockHttpServletRequest createServletRequest(FullHttpRequest httpRequest) {
+        UriComponents uriComponents = UriComponentsBuilder.fromUriString(httpRequest.getUri()).build();
+
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest(this.servletContext);
+        servletRequest.setRequestURI(uriComponents.getPath());
+        servletRequest.setPathInfo(uriComponents.getPath());
+        servletRequest.setMethod(httpRequest.getMethod().name());
+
+        if (uriComponents.getScheme() != null) {
+            servletRequest.setScheme(uriComponents.getScheme());
+        }
+        if (uriComponents.getHost() != null) {
+            servletRequest.setServerName(uriComponents.getHost());
+        }
+        if (uriComponents.getPort() != -1) {
+            servletRequest.setServerPort(uriComponents.getPort());
+        }
+        for (Map.Entry<String, String> headerEntry : httpRequest.headers()) {
+            servletRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
+        }
+
+        servletRequest.setContent(httpRequest.content().array());
+
+        try {
+            if (uriComponents.getQuery() != null) {
+                String query = UriUtils.decode(uriComponents.getQuery(), "UTF-8");
+                servletRequest.setQueryString(query);
+            }
+
+            for (Map.Entry<String, List<String>> entry : uriComponents.getQueryParams().entrySet()) {
+                for (String value : entry.getValue()) {
+                    servletRequest.addParameter(
+                            UriUtils.decode(entry.getKey(), "UTF-8"),
+                            UriUtils.decode(value, "UTF-8"));
+                }
+            }
+        } catch (UnsupportedEncodingException ex) {
+            // shouldn't happen
+            LOGGER.error(ex.getMessage(), ex);
+        }
+
+        return servletRequest;
+    }
+
+
 }
