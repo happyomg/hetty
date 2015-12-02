@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class HettyEmbeddedServletContainerFactory extends AbstractEmbeddedServletContainerFactory implements ResourceLoaderAware {
+    @Autowired
     private ResourceLoader resourceLoader;
 
     @Autowired
