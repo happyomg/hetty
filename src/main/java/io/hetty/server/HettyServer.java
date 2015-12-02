@@ -3,12 +3,12 @@ package io.hetty.server;
 import com.google.common.util.concurrent.AbstractIdleService;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.embedded.EmbeddedServletContainer;
 import org.springframework.boot.context.embedded.EmbeddedServletContainerException;
 
@@ -26,7 +26,9 @@ public class HettyServer extends AbstractIdleService implements EmbeddedServletC
     protected NioEventLoopGroup workerGroup;
     protected ServerBootstrap serverBootstrap;
     protected ChannelFuture bossChannel;
-    protected ChannelInboundHandlerAdapter handler;
+    //    protected ChannelInboundHandlerAdapter handler;
+    @Autowired
+    protected HettyChannelIniter initer;
 
     protected HettyConfig hettyConfig;
 
@@ -62,6 +64,7 @@ public class HettyServer extends AbstractIdleService implements EmbeddedServletC
             LOGGER.info("Web server started at port:" + hettyConfig.getBindPort() + '.');
             LOGGER.info("Open your browser and navigate to http://" + hettyConfig.getBindAddress() + ":" + hettyConfig.getBindPort() + '/');
         } catch (InterruptedException e) {
+            e.printStackTrace();
         }
 //        reload();
         LOGGER.info("Started hetty server on {}:{} .", this.hettyConfig.getBindAddress(), this.hettyConfig.getBindPort());
@@ -75,26 +78,17 @@ public class HettyServer extends AbstractIdleService implements EmbeddedServletC
     }
 
     private ChannelInitializer<?> initChildHandler() throws ServletException {
-        HettyChannelIniter initer = new HettyChannelIniter();
         return initer;
     }
 
     @Override
     public void start() throws EmbeddedServletContainerException {
-        try {
-            startUp();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        startAsync();
     }
 
     @Override
     public void stop() throws EmbeddedServletContainerException {
-        try {
-            shutDown();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        stopAsync();
     }
 
     @Override

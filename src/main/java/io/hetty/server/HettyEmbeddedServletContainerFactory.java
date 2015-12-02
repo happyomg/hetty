@@ -1,5 +1,6 @@
 package io.hetty.server;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.embedded.AbstractEmbeddedServletContainerFactory;
 import org.springframework.boot.context.embedded.EmbeddedServletContainer;
 import org.springframework.boot.context.embedded.ServletContextInitializer;
@@ -14,9 +15,12 @@ import org.springframework.stereotype.Component;
 public class HettyEmbeddedServletContainerFactory extends AbstractEmbeddedServletContainerFactory implements ResourceLoaderAware {
     private ResourceLoader resourceLoader;
 
+    @Autowired
+    private HettyServer hettyServer;
+
     @Override
     public EmbeddedServletContainer getEmbeddedServletContainer(ServletContextInitializer... initializers) {
-        return HettyServer.Builder.createDefault();
+        return hettyServer;
     }
 
     @Override

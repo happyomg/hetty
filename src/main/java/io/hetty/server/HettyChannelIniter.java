@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.SpringBootMockServletContext;
 import org.springframework.mock.web.MockServletConfig;
 import org.springframework.mock.web.MockServletContext;
+import org.springframework.stereotype.Component;
 import org.springframework.web.context.support.XmlWebApplicationContext;
 import org.springframework.web.servlet.DispatcherServlet;
 
@@ -19,23 +20,24 @@ import javax.servlet.ServletException;
 /**
  * Created by yuck on 2015/11/30.
  */
+@Component
 public class HettyChannelIniter extends ChannelInitializer<Channel> {
-    private final HettyHttpHandler handler;
-
     @Autowired
-    private DispatcherServlet dispatcherServlet;
+    private  HettyHttpHandler handler;
+
+//    @Autowired
+//    private DispatcherServlet dispatcherServlet;
 
     public HettyChannelIniter() throws ServletException {
-        MockServletContext servletContext = new MockServletContext();
-        MockServletConfig servletConfig = new MockServletConfig(servletContext);
-        XmlWebApplicationContext wac = new XmlWebApplicationContext();
-        wac.setServletContext(servletContext);
-        wac.setServletConfig(servletConfig);
-        wac.setConfigLocation("classpath:/application-context.xml");
-        wac.refresh();
-        this.dispatcherServlet = new DispatcherServlet(wac);
-        this.dispatcherServlet.init(servletConfig);
-        this.handler = new HettyHttpHandler(this.dispatcherServlet);
+//        MockServletContext servletContext = new MockServletContext();
+//        MockServletConfig servletConfig = new MockServletConfig(servletContext);
+//        XmlWebApplicationContext wac = new XmlWebApplicationContext();
+//        wac.setServletContext(servletContext);
+//        wac.setServletConfig(servletConfig);
+//        wac.setConfigLocation("classpath:/application-context.xml");
+//        wac.refresh();
+//        this.dispatcherServlet = new DispatcherServlet(wac);
+//        this.dispatcherServlet.init(servletConfig);
     }
 
     @Override
@@ -58,6 +60,6 @@ public class HettyChannelIniter extends ChannelInitializer<Channel> {
 //        if(handler instanceof CiHttpWebSocketHandler){
 //            pipeline.addLast("encoder-websocket", new WebSocketDataEncoder());
 //        }
-        pipeline.addLast("handler", new HettyHttpHandler(this.dispatcherServlet));
+        pipeline.addLast("handler", handler);
     }
 }
