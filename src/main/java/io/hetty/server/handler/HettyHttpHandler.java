@@ -7,6 +7,9 @@ import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.stream.ChunkedStream;
 import io.netty.util.CharsetUtil;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -49,10 +52,13 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
                 ctx.writeAndFlush(ret).addListener(ChannelFutureListener.CLOSE);
                 return;
             } else {
-                LOGGER.info("TODO HANDLE REQUEST");
                 MockHttpServletRequest servletRequest = createServletRequest(req);
                 MockHttpServletResponse servletResponse = new MockHttpServletResponse();
-                this.servlet.service(servletRequest, servletResponse);
+                try {
+                    this.servlet.service(servletRequest, servletResponse);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
                 HttpResponseStatus status = HttpResponseStatus.valueOf(servletResponse.getStatus());
                 HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
 
@@ -63,11 +69,21 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
                 }
 
                 // Write the initial line and the header.
+                if (status.code() < 200 || status.code() >= 400) {
+                    HttpHeaderUtil.setKeepAlive(response, false);
+                }
                 ctx.write(response);
 
-                InputStream contentStream = new ByteArrayInputStream(servletResponse.getContentAsByteArray());
-                // Write the content.
-                ctx.writeAndFlush(new ChunkedStream(contentStream)).addListener(ChannelFutureListener.CLOSE);
+                ChannelFuture channelFuture;
+                if (!StringUtil.isNullOrEmpty(servletResponse.getErrorMessage())) {
+                    channelFuture = ctx.writeAndFlush(servletResponse.getErrorMessage());
+                } else {
+                    // Write the content.
+                    final InputStream contentStream = new ByteArrayInputStream(servletResponse.getContentAsByteArray());
+                    channelFuture = ctx.writeAndFlush(new ChunkedStream(contentStream));
+                }
+                channelFuture.addListener(ChannelFutureListener.CLOSE);
+
             }
         }
     }
@@ -85,6 +101,7 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
         ByteBuf content = Unpooled.copiedBuffer("Failure: " + status.toString() + "\r\n", CharsetUtil.UTF_8);
         DefaultFullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content);
         response.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8");
+        HttpHeaderUtil.setKeepAlive(response, false);
         // Close the connection as soon as the error message is sent.
         ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
     }

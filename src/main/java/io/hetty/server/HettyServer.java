@@ -140,5 +140,10 @@ public class HettyServer extends AbstractIdleService implements EmbeddedServletC
             return this;
         }
 
+        public Builder chartset(String chartset) {
+            this.hettyConfig.setChartset(chartset);
+            return this;
+        }
+
     }
 }

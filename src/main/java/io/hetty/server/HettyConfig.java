@@ -8,11 +8,13 @@ public class HettyConfig {
     public static final int DEFAULT_BIND_PORT = 8080;
     public static final int DEFAULT_BOSS_THREAD_NUM = 0;
     public static final int DEFAULT_WORKER_THREAD_NUM = 0;
+    public static final String DEFAULT_CHARTSET = "UTF-8";
 
     private String bindAddress = DEFAULT_BIND_ADDRESS;
     private int bindPort = DEFAULT_BIND_PORT;
     private int bossThreadNum = DEFAULT_BOSS_THREAD_NUM;
     private int workerThreadNum = DEFAULT_WORKER_THREAD_NUM;
+    private String chartset = DEFAULT_CHARTSET;
 
     public int getBindPort() {
         return bindPort;
@@ -44,5 +46,13 @@ public class HettyConfig {
 
     public void setWorkerThreadNum(int workerThreadNum) {
         this.workerThreadNum = workerThreadNum;
+    }
+
+    public String getChartset() {
+        return chartset;
+    }
+
+    public void setChartset(String chartset) {
+        this.chartset = chartset;
     }
 }

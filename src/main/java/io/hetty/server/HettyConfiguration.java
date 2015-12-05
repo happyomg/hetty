@@ -1,4 +1,4 @@
-package io.hetty;
+package io.hetty.server;
 
 import io.hetty.server.HettyServer;
 import io.hetty.server.handler.HettyHttpHandler;
