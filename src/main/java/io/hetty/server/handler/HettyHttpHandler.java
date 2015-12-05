@@ -33,7 +33,7 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
     private final Servlet servlet;
     private final ServletContext servletContext;
 
-    public HettyHttpHandler(Servlet servlet,ServletContext servletContext) {
+    public HettyHttpHandler(Servlet servlet, ServletContext servletContext) {
         this.servlet = servlet;
         this.servletContext = servletContext;
     }
