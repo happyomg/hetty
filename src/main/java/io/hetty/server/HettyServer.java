@@ -4,6 +4,7 @@ import com.google.common.util.concurrent.AbstractIdleService;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.internal.logging.InternalLogger;
@@ -50,12 +51,12 @@ public class HettyServer extends AbstractIdleService implements EmbeddedServletC
 
         serverBootstrap.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class)
-//                .option(ChannelOption.SO_REUSEADDR, CiSystemConfig.SocketReuseAddr)
-//                .childOption(ChannelOption.SO_KEEPALIVE, CiSystemConfig.SocketKeepAlive)
-//                .option(ChannelOption.TCP_NODELAY, CiSystemConfig.TCP_NODELAY)
-//                .option(ChannelOption.SO_BACKLOG, CiSystemConfig.SocketBackLog)
-//                .option(ChannelOption.SO_RCVBUF, CiSystemConfig.SocketRcvbufSize)
-//                .option(ChannelOption.SO_SNDBUF, CiSystemConfig.SocketSndbufSize)
+                .option(ChannelOption.SO_REUSEADDR, true)
+                .childOption(ChannelOption.SO_KEEPALIVE, false)
+                .option(ChannelOption.TCP_NODELAY, true)
+                .option(ChannelOption.SO_BACKLOG, 256)
+                .option(ChannelOption.SO_RCVBUF, 8192)
+                .option(ChannelOption.SO_SNDBUF, 8192)
                 .childHandler(initChildHandler());
 
         bossChannel = serverBootstrap.bind(hettyConfig.getBindPort());

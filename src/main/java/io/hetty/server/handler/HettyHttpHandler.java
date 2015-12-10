@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.multipart.*;
 import io.netty.handler.stream.ChunkedStream;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
@@ -21,6 +22,7 @@ import org.springframework.web.util.UriUtils;
 import javax.servlet.Servlet;
 import javax.servlet.ServletContext;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
@@ -32,6 +34,8 @@ import java.util.Map;
 @ChannelHandler.Sharable
 public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
     private static final InternalLogger LOGGER = InternalLoggerFactory.getInstance(HettyHttpHandler.class);
+
+    private static final HttpDataFactory HTTP_DATA_FACTORY = new DefaultHttpDataFactory(false); //Disk
 
     private final Servlet servlet;
     private final ServletContext servletContext;
@@ -54,11 +58,11 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
             } else {
                 MockHttpServletRequest servletRequest = createServletRequest(req);
                 MockHttpServletResponse servletResponse = new MockHttpServletResponse();
-                try {
-                    this.servlet.service(servletRequest, servletResponse);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+//                try {
+                this.servlet.service(servletRequest, servletResponse);
+//                } catch (Exception e) {
+//                    e.printStackTrace();
+//                }
                 HttpResponseStatus status = HttpResponseStatus.valueOf(servletResponse.getStatus());
                 HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
 
@@ -83,7 +87,6 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
                     channelFuture = ctx.writeAndFlush(new ChunkedStream(contentStream));
                 }
                 channelFuture.addListener(ChannelFutureListener.CLOSE);
-
             }
         }
     }
@@ -106,13 +109,13 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
         ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
     }
 
-    private MockHttpServletRequest createServletRequest(FullHttpRequest httpRequest) {
+    private MockHttpServletRequest createServletRequest(FullHttpRequest httpRequest) throws IOException {
         UriComponents uriComponents = UriComponentsBuilder.fromUriString(httpRequest.getUri()).build();
-
+        HttpMethod httpMethod = httpRequest.getMethod();
         MockHttpServletRequest servletRequest = new MockHttpServletRequest(this.servletContext);
         servletRequest.setRequestURI(uriComponents.getPath());
         servletRequest.setPathInfo(uriComponents.getPath());
-        servletRequest.setMethod(httpRequest.getMethod().name());
+        servletRequest.setMethod(httpMethod.name());
 
         if (uriComponents.getScheme() != null) {
             servletRequest.setScheme(uriComponents.getScheme());
@@ -126,8 +129,23 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
         for (Map.Entry<String, String> headerEntry : httpRequest.headers()) {
             servletRequest.addHeader(headerEntry.getKey(), headerEntry.getValue());
         }
+        if (HttpMethod.GET.equals(httpMethod) || HttpMethod.DELETE.equals(httpMethod)) {
+            servletRequest.setContent(httpRequest.content().array());
+        } else if (HttpMethod.POST.equals(httpMethod) || HttpMethod.PUT.equals(httpMethod)) {
+            HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(HTTP_DATA_FACTORY, httpRequest);
 
-        servletRequest.setContent(httpRequest.content().array());
+            List<InterfaceHttpData> httpDatas = decoder.getBodyHttpDatas();
+            for (InterfaceHttpData data : httpDatas) {
+        	System.out.println(data.getName() + ", "+data.getHttpDataType());
+                if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
+                    Attribute attribute = (Attribute) data;
+                    String key = attribute.getName();
+                    servletRequest.addParameter(data.getName(), ((Attribute) data).getValue());
+                } else if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
+                    throw new UnsupportedOperationException("FileUpload is unsupported !");
+                }
+            }
+        }
 
         try {
             if (uriComponents.getQuery() != null) {
