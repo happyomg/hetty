@@ -138,9 +138,11 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
             for (InterfaceHttpData data : httpDatas) {
         	System.out.println(data.getName() + ", "+data.getHttpDataType());
                 if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
-                    Attribute attribute = (Attribute) data;
-                    String key = attribute.getName();
-                    servletRequest.addParameter(data.getName(), ((Attribute) data).getValue());
+                    String key = data.getName();
+                    if (key.endsWith("[]")) {//spring mvc不支持直接以[]结尾的参数
+                        key = key.replace("[]", "");
+                    }
+                    servletRequest.addParameter(key, ((Attribute) data).getValue());
                 } else if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
                     throw new UnsupportedOperationException("FileUpload is unsupported !");
                 }
