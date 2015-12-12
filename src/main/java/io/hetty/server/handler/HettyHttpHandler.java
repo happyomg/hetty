@@ -1,5 +1,6 @@
 package io.hetty.server.handler;
 
+import io.hetty.server.handler.fileupload.HettyMultipartFile;
 import io.hetty.server.util.HttpHeaderUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -8,13 +9,13 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.multipart.*;
 import io.netty.handler.stream.ChunkedStream;
 import io.netty.util.CharsetUtil;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.mock.web.MockMultipartHttpServletRequest;
 import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
@@ -35,7 +36,7 @@ import java.util.Map;
 public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
     private static final InternalLogger LOGGER = InternalLoggerFactory.getInstance(HettyHttpHandler.class);
 
-    private static final HttpDataFactory HTTP_DATA_FACTORY = new DefaultHttpDataFactory(false); //Disk
+    private static final HttpDataFactory HTTP_DATA_FACTORY = new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE); //Disk
 
     private final Servlet servlet;
     private final ServletContext servletContext;
@@ -56,37 +57,43 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
                 ctx.writeAndFlush(ret).addListener(ChannelFutureListener.CLOSE);
                 return;
             } else {
-                MockHttpServletRequest servletRequest = createServletRequest(req);
-                MockHttpServletResponse servletResponse = new MockHttpServletResponse();
-//                try {
-                this.servlet.service(servletRequest, servletResponse);
-//                } catch (Exception e) {
-//                    e.printStackTrace();
-//                }
-                HttpResponseStatus status = HttpResponseStatus.valueOf(servletResponse.getStatus());
-                HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
+                HettyRequestContext requestContext = null;
+                try {
+                    requestContext = createServletRequest(req);
+                    MockHttpServletRequest servletRequest = requestContext.getHttpServletRequest();
+                    MockHttpServletResponse servletResponse = new MockHttpServletResponse();
 
-                for (String name : servletResponse.getHeaderNames()) {
-                    for (Object value : servletResponse.getHeaderValues(name)) {
-                        response.headers().add(name, value);
+                    this.servlet.service(servletRequest, servletResponse);
+
+                    HttpResponseStatus status = HttpResponseStatus.valueOf(servletResponse.getStatus());
+                    HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
+
+                    for (String name : servletResponse.getHeaderNames()) {
+                        for (Object value : servletResponse.getHeaderValues(name)) {
+                            response.headers().add(name, value);
+                        }
+                    }
+
+                    // Write the initial line and the header.
+                    if (status.code() < 200 || status.code() >= 400) {
+                        HttpHeaderUtil.setKeepAlive(response, false);
+                    }
+                    ctx.write(response);
+
+                    ChannelFuture channelFuture;
+                    if (!StringUtil.isNullOrEmpty(servletResponse.getErrorMessage())) {
+                        channelFuture = ctx.writeAndFlush(servletResponse.getErrorMessage());
+                    } else {
+                        // Write the content.
+                        final InputStream contentStream = new ByteArrayInputStream(servletResponse.getContentAsByteArray());
+                        channelFuture = ctx.writeAndFlush(new ChunkedStream(contentStream));
+                    }
+                    channelFuture.addListener(ChannelFutureListener.CLOSE);
+                } finally {
+                    if (requestContext != null && requestContext.getDecoder() != null) {
+                        requestContext.getDecoder().destroy();
                     }
                 }
-
-                // Write the initial line and the header.
-                if (status.code() < 200 || status.code() >= 400) {
-                    HttpHeaderUtil.setKeepAlive(response, false);
-                }
-                ctx.write(response);
-
-                ChannelFuture channelFuture;
-                if (!StringUtil.isNullOrEmpty(servletResponse.getErrorMessage())) {
-                    channelFuture = ctx.writeAndFlush(servletResponse.getErrorMessage());
-                } else {
-                    // Write the content.
-                    final InputStream contentStream = new ByteArrayInputStream(servletResponse.getContentAsByteArray());
-                    channelFuture = ctx.writeAndFlush(new ChunkedStream(contentStream));
-                }
-                channelFuture.addListener(ChannelFutureListener.CLOSE);
             }
         }
     }
@@ -109,10 +116,17 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
         ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
     }
 
-    private MockHttpServletRequest createServletRequest(FullHttpRequest httpRequest) throws IOException {
+    private HettyRequestContext createServletRequest(FullHttpRequest httpRequest) throws IOException {
         UriComponents uriComponents = UriComponentsBuilder.fromUriString(httpRequest.getUri()).build();
         HttpMethod httpMethod = httpRequest.getMethod();
-        MockHttpServletRequest servletRequest = new MockHttpServletRequest(this.servletContext);
+        MockHttpServletRequest servletRequest;
+        InterfaceHttpPostRequestDecoder decoder = null;
+        if (HttpMethod.GET.equals(httpMethod) || HttpMethod.DELETE.equals(httpMethod)) {
+            servletRequest = new MockHttpServletRequest(this.servletContext);
+        } else {
+            servletRequest = new MockMultipartHttpServletRequest(this.servletContext);
+        }
+
         servletRequest.setRequestURI(uriComponents.getPath());
         servletRequest.setPathInfo(uriComponents.getPath());
         servletRequest.setMethod(httpMethod.name());
@@ -132,19 +146,33 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
         if (HttpMethod.GET.equals(httpMethod) || HttpMethod.DELETE.equals(httpMethod)) {
             servletRequest.setContent(httpRequest.content().array());
         } else if (HttpMethod.POST.equals(httpMethod) || HttpMethod.PUT.equals(httpMethod)) {
-            HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(HTTP_DATA_FACTORY, httpRequest);
+            MockMultipartHttpServletRequest multipartHttpServletRequest = (MockMultipartHttpServletRequest) servletRequest;
+            decoder = new HttpPostRequestDecoder(HTTP_DATA_FACTORY, httpRequest);
 
             List<InterfaceHttpData> httpDatas = decoder.getBodyHttpDatas();
             for (InterfaceHttpData data : httpDatas) {
-        	System.out.println(data.getName() + ", "+data.getHttpDataType());
+                System.out.println(data.getName() + ", " + data.getHttpDataType());
                 if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
                     String key = data.getName();
                     if (key.endsWith("[]")) {//spring mvc不支持直接以[]结尾的参数
                         key = key.replace("[]", "");
                     }
-                    servletRequest.addParameter(key, ((Attribute) data).getValue());
+                    multipartHttpServletRequest.addParameter(key, ((Attribute) data).getValue());
                 } else if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
-                    throw new UnsupportedOperationException("FileUpload is unsupported !");
+                    MixedFileUpload fileUpload = (MixedFileUpload) data;
+                    if (fileUpload.isCompleted()) {
+                        if (fileUpload.isInMemory()) {
+                            MockMultipartFile multipartFile = new MockMultipartFile(fileUpload.getName(), fileUpload.getFilename(), fileUpload.getContentType(), fileUpload.get());
+                            multipartHttpServletRequest.addFile(multipartFile);
+                            System.out.println(multipartFile);
+                        } else {
+                            System.out.println(fileUpload);
+                            multipartHttpServletRequest.addFile(new HettyMultipartFile(fileUpload));
+                        }
+                    } else {
+                        LOGGER.warn("{} not complete!!!!!!", fileUpload);
+                    }
+//                    throw new UnsupportedOperationException("FileUpload is unsupported !");
                 }
             }
         }
@@ -167,7 +195,7 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
             LOGGER.error(ex.getMessage(), ex);
         }
 
-        return servletRequest;
+        return new HettyRequestContext(servletRequest, decoder);
     }
 
 
