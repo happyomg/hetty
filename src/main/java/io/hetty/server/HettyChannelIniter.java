@@ -25,21 +25,6 @@ public class HettyChannelIniter extends ChannelInitializer<Channel> {
     @Autowired
     private  HettyHttpHandler handler;
 
-//    @Autowired
-//    private DispatcherServlet dispatcherServlet;
-
-    public HettyChannelIniter() throws ServletException {
-//        MockServletContext servletContext = new MockServletContext();
-//        MockServletConfig servletConfig = new MockServletConfig(servletContext);
-//        XmlWebApplicationContext wac = new XmlWebApplicationContext();
-//        wac.setServletContext(servletContext);
-//        wac.setServletConfig(servletConfig);
-//        wac.setConfigLocation("classpath:/application-context.xml");
-//        wac.refresh();
-//        this.dispatcherServlet = new DispatcherServlet(wac);
-//        this.dispatcherServlet.init(servletConfig);
-    }
-
     @Override
     protected void initChannel(Channel channel) throws Exception {
         ChannelPipeline pipeline = channel.pipeline();

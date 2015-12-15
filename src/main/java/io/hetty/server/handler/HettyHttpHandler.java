@@ -82,13 +82,13 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
 
                     ChannelFuture channelFuture;
                     if (!StringUtil.isNullOrEmpty(servletResponse.getErrorMessage())) {
-                        channelFuture = ctx.writeAndFlush(servletResponse.getErrorMessage());
+                        channelFuture = ctx.write(servletResponse.getErrorMessage());
                     } else {
                         // Write the content.
                         final InputStream contentStream = new ByteArrayInputStream(servletResponse.getContentAsByteArray());
-                        channelFuture = ctx.writeAndFlush(new ChunkedStream(contentStream));
+                        channelFuture = ctx.write(new ChunkedStream(contentStream));
                     }
-                    channelFuture.addListener(ChannelFutureListener.CLOSE);
+                    ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
                 } finally {
                     if (requestContext != null && requestContext.getDecoder() != null) {
                         requestContext.getDecoder().destroy();
