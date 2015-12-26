@@ -2,6 +2,7 @@ package io.hetty.server.handler;
 
 import io.hetty.server.handler.fileupload.HettyMultipartFile;
 import io.hetty.server.util.HttpHeaderUtil;
+import io.hetty.server.util.ThreadPoolBuilder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
@@ -9,7 +10,9 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.multipart.*;
 import io.netty.handler.stream.ChunkedStream;
 import io.netty.util.CharsetUtil;
+import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.internal.StringUtil;
+import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -22,12 +25,14 @@ import org.springframework.web.util.UriUtils;
 
 import javax.servlet.Servlet;
 import javax.servlet.ServletContext;
+import javax.servlet.ServletException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Created by yuck on 2015/11/30.
@@ -40,6 +45,7 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
 
     private final Servlet servlet;
     private final ServletContext servletContext;
+    private final ExecutorService executorService = new ThreadPoolBuilder.FixedThreadPoolBuilder().setPoolSize(Math.max(1, SystemPropertyUtil.getInt("io.netty.eventLoopThreads", Runtime.getRuntime().availableProcessors() * 2))).build();
 
     public HettyHttpHandler(Servlet servlet, ServletContext servletContext) {
         this.servlet = servlet;
@@ -47,24 +53,32 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, Object msg) throws Exception {
+    protected void channelRead0(final ChannelHandlerContext ctx, Object msg) throws Exception {
         LOGGER.debug("requestMsg:{}", msg);
         if ((msg instanceof FullHttpRequest)) {
-            FullHttpRequest req = (FullHttpRequest) msg;
+            final FullHttpRequest req = (FullHttpRequest) msg;
             if (!req.getDecoderResult().isSuccess()) {
                 DefaultFullHttpResponse ret = new DefaultFullHttpResponse(req.getProtocolVersion(), HttpResponseStatus.INTERNAL_SERVER_ERROR);
                 HttpHeaderUtil.setKeepAlive(ret, false);
                 ctx.writeAndFlush(ret).addListener(ChannelFutureListener.CLOSE);
                 return;
             } else {
-                HettyRequestContext requestContext = null;
+                handleRequest(ctx, req);
+            }
+        }
+    }
+
+    private void handleRequest(final ChannelHandlerContext ctx, final FullHttpRequest req) throws IOException, ServletException {
+//        HettyRequestContext requestContext = null;
+        final HettyRequestContext requestContext = createServletRequest(req);
+        final MockHttpServletRequest servletRequest = requestContext.getHttpServletRequest();
+        final MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
                 try {
-                    requestContext = createServletRequest(req);
-                    MockHttpServletRequest servletRequest = requestContext.getHttpServletRequest();
-                    MockHttpServletResponse servletResponse = new MockHttpServletResponse();
-
-                    this.servlet.service(servletRequest, servletResponse);
-
+                    HettyHttpHandler.this.servlet.service(servletRequest, servletResponse);
                     HttpResponseStatus status = HttpResponseStatus.valueOf(servletResponse.getStatus());
                     HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
 
@@ -89,13 +103,17 @@ public class HettyHttpHandler extends SimpleChannelInboundHandler<Object> {
                         channelFuture = ctx.write(new ChunkedStream(contentStream));
                     }
                     ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
+                } catch (ServletException e) {
+                    e.printStackTrace();
+                } catch (IOException e) {
+                    e.printStackTrace();
                 } finally {
                     if (requestContext != null && requestContext.getDecoder() != null) {
                         requestContext.getDecoder().destroy();
                     }
                 }
             }
-        }
+        });
     }
 
     @Override
